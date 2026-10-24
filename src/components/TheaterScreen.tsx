@@ -217,7 +217,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
       const partnerReplies = [
         'دقیقاً! چقدر این صحنه خوبه 😍',
         'وای منم عاشق این موزیکم ❤️',
-        'گریه‌م گرفت آرین...',
+        'گریه‌م گرفت آریان...',
         'تپش قلبم رفته روی صد! 🥺',
       ];
       const randomReply = partnerReplies[Math.floor(Math.random() * partnerReplies.length)];

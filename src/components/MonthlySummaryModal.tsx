@@ -37,7 +37,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({ isOpen
             <span>خلاصه عاشقانه بهمن ماه</span>
           </div>
           <h3 className="text-2xl font-bold text-white mb-1">
-            کارنامه سینمایی آرین و پرنیا
+            کارنامه سینمایی آریان و پرنیا
           </h3>
           <p className="text-xs text-[#94a3b8]">فاصله تهران تا مقصد با هر فریم فیلم نزدیک‌تر شد</p>
         </div>

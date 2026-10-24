@@ -7,7 +7,7 @@ import { MovieMemory, PhotoMemory, WishlistItem, RoomSettings, PartnerProfile } 
 
 export const currentUser: PartnerProfile = {
   id: 'aryan',
-  name: 'آرین',
+  name: 'آریان',
   role: 'میزبان سالن',
   status: 'آنلاین',
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
