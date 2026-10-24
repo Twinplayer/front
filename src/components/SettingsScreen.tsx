@@ -127,7 +127,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onSave }) => {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-bold text-white">آستانه تلرانس همگام‌سازی (Sync Tolerance)</h3>
-                      <Info className="w-4 h-4 text-[#8b5cf6] cursor-help" title="حداکثر اختلاف زمانی مجاز قبل از تصحیح خودکار سرعت" />
+                      <span title="حداکثر اختلاف زمانی مجاز قبل از تصحیح خودکار سرعت" className="inline-flex items-center">
+                        <Info className="w-4 h-4 text-[#8b5cf6] cursor-help" />
+                      </span>
                     </div>
                     <span className="text-xs font-bold font-mono px-3 py-1 rounded-xl bg-[#ff3366]/20 text-[#ffb2ba] border border-[#ff3366]/30">
                       {settings.syncToleranceMs} میلی‌ثانیه

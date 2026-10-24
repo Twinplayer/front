@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { currentUser, partnerUser } from '../data/mockData';
 import {
   Heart,
@@ -16,7 +16,10 @@ import {
   ArrowRightLeft,
   Lock,
   Play,
-  Film
+  Film,
+  Copy,
+  Check,
+  Share2
 } from 'lucide-react';
 
 interface LandingScreenProps {
@@ -30,6 +33,17 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 }) => {
   const [contactInput, setContactInput] = useState('09120005678');
   const [inputError, setInputError] = useState('');
+  const [invitedRoomId, setInvitedRoomId] = useState<string | null>(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+
+  useEffect(() => {
+    // Check if user came from a partner invitation link
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setInvitedRoomId(roomParam);
+    }
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +53,13 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
     }
     setInputError('');
     onRequestOtp(contactInput);
+  };
+
+  const handleCopyInviteLink = () => {
+    const inviteUrl = `${window.location.origin}/?room=TP-8842`;
+    navigator.clipboard?.writeText(inviteUrl);
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 2500);
   };
 
   return (
@@ -76,6 +97,29 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         </div>
       </header>
 
+      {/* Invitation Alert Banner if user clicked an invite link */}
+      {invitedRoomId && (
+        <div className="relative z-20 max-w-3xl mx-auto px-6 w-full mb-2">
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-[#8b5cf6]/20 via-[#ff3366]/20 to-transparent border border-[#ff3366]/40 flex items-center justify-between shadow-xl backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#ff3366]/20 flex items-center justify-center text-[#ff3366]">
+                <Heart className="w-4 h-4 fill-current" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">دعوت‌نامه ورود به سالن اختصاصی {invitedRoomId}</h4>
+                <p className="text-xs text-[#94a3b8]">شماره یا ایمیل خود را وارد کنید تا به پارتنرتان ملحق شوید</p>
+              </div>
+            </div>
+            <button
+              onClick={onEnterRoom}
+              className="px-4 py-2 rounded-xl bg-[#ff3366] text-white text-xs font-bold hover:bg-[#ff4f73] transition-colors shadow-lg shadow-[#ff3366]/20"
+            >
+              ورود مستقیم
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Hero & Content Section */}
       <main className="relative z-10 max-w-6xl mx-auto w-full px-6 py-8 flex-1 flex flex-col justify-center">
         {/* Hero Title */}
@@ -99,22 +143,27 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2 text-xs text-[#94a3b8] bg-[#10131e]/70 px-3 py-1.5 rounded-xl border border-white/5">
                   <Clock className="w-3.5 h-3.5 text-[#8b5cf6]" />
-                  <span>جلسه ذخیره‌شده قبلی</span>
+                  <span>سالن ذخیره‌شده</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>آماده همگام‌سازی</span>
+                  <span>آماده همگام‌سازی P2P</span>
                 </div>
               </div>
 
               {/* Room Title */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#ff3366] animate-ping" />
-                <h3 className="text-2xl font-bold text-white">سالن همیشگی: خلوت</h3>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#ff3366] animate-ping" />
+                  <h3 className="text-2xl font-bold text-white">سالن همیشگی: خلوت</h3>
+                </div>
+                <span className="text-xs font-mono font-bold text-[#d0bcff] bg-[#8b5cf6]/20 px-2.5 py-1 rounded-lg border border-[#8b5cf6]/30">
+                  TP-8842
+                </span>
               </div>
               <p className="text-xs text-[#94a3b8] flex items-center gap-1.5 mb-6">
                 <Lock className="w-3.5 h-3.5 text-[#ff3366]" />
-                <span>آخرین حضور: دیشب در حال تماشای مشترک</span>
+                <span>اتصال امن سرتاسری مستقیم بین دو مرورگر</span>
               </p>
 
               {/* Connected Avatars */}
@@ -141,7 +190,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                   <span className="text-[11px] font-mono font-semibold text-[#d0bcff] mt-1">12ms</span>
                 </div>
 
-                {/* Current User (Aryan) */}
+                {/* Current User (Aryan - Host) */}
                 <div className="flex items-center gap-3 text-left">
                   <div>
                     <h4 className="text-sm font-bold text-white text-right">{currentUser.name}</h4>
@@ -177,17 +226,37 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               </div>
             </div>
 
-            {/* Quick Action Button */}
-            <button
-              onClick={onEnterRoom}
-              className="w-full py-4 px-6 rounded-2xl bg-[#1c1f2a] hover:bg-[#272935] border border-white/10 hover:border-[#ff3366]/50 text-white font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-[#ff3366]/10"
-            >
-              <Play className="w-4 h-4 text-[#ff3366] fill-[#ff3366]" />
-              <span>ورود به سالن همیشگی ما</span>
-            </button>
+            {/* Quick Action Button & Copy Invite Link */}
+            <div className="space-y-3">
+              <button
+                onClick={onEnterRoom}
+                className="w-full py-4 px-6 rounded-2xl bg-[#1c1f2a] hover:bg-[#272935] border border-white/10 hover:border-[#ff3366]/50 text-white font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-[#ff3366]/10 cursor-pointer"
+              >
+                <Play className="w-4 h-4 text-[#ff3366] fill-[#ff3366]" />
+                <span>ورود به سالن همیشگی ما</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyInviteLink}
+                className="w-full py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-xs text-[#d0bcff] flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                {copiedInvite ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400 font-semibold">لینک اختصاصی سالن در کلیپ‌بورد کپی شد</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="w-3.5 h-3.5 text-[#8b5cf6]" />
+                    <span>کپی لینک دعوت اختصاصی سالن برای پارتنر</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Card 2 (Right in Persian layout): Login & Create New Room */}
+          {/* Card 2 (Right in Persian layout): Simple Host Login */}
           <div className="glass-panel-elevated rounded-3xl p-6 sm:p-8 flex flex-col justify-between border border-white/10 relative overflow-hidden">
             <div className="absolute -top-10 -left-10 w-40 h-40 bg-[#ff3366]/15 rounded-full blur-3xl pointer-events-none" />
 
@@ -195,27 +264,27 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               {/* Header Tab */}
               <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-[#ff3366] text-white font-bold text-sm shadow-lg shadow-[#ff3366]/30 mb-8">
                 <Film className="w-4 h-4" />
-                <span>ورود / ساخت سالن</span>
+                <span>ورود میزبان / ساخت سالن</span>
               </div>
 
               {/* Title & Description */}
-              <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">شماره موبایل یا ایمیل</h3>
+              <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">ورود ساده با شماره یا ایمیل</h3>
               <p className="text-xs sm:text-sm text-[#94a3b8] leading-relaxed mb-6">
-                جهت ورود و ساخت امن سالن تماشای دونفره، کد تأیید رمزنگاری‌شده اختصاصی برای شما ارسال می‌شود.
+                نیازی به ثبت مشخصات پارتنر نیست؛ فقط شماره موبایل یا ایمیل خود را وارد کنید. پس از ورود، لینک اختصاصی برای دعوت پارتنرتان تولید می‌شود.
               </p>
 
               {/* Form Input */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-[#94a3b8] mb-2">
-                    شماره موبایل یا آدرس ایمیل:
+                    شماره موبایل یا آدرس ایمیل میزبان:
                   </label>
                   <input
                     type="text"
                     value={contactInput}
                     onChange={(e) => setContactInput(e.target.value)}
                     dir="ltr"
-                    placeholder="0912... یا partner@email.com"
+                    placeholder="0912... یا host@email.com"
                     className="w-full px-5 py-4 rounded-2xl bg-[#10131e]/90 border border-white/10 focus:border-[#ff3366] focus:ring-2 focus:ring-[#ff3366]/30 text-white font-mono text-base outline-none transition-all"
                   />
                   {inputError && (
@@ -235,10 +304,10 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               </form>
             </div>
 
-            {/* Footnote matching Image 1 */}
+            {/* Footnote */}
             <div className="pt-6 mt-6 border-t border-white/5 flex items-center gap-2 text-xs text-[#94a3b8]">
               <LinkIcon className="w-4 h-4 text-[#8b5cf6] shrink-0" />
-              <span>پس از ورود، لینک اختصاصی اتاق را تنها با یک کلیک برای پارتنرتان ارسال کنید.</span>
+              <span>پس از ورود، لینک اختصاصی سالن را با یک کلیک برای پارتنرتان در تلگرام یا پیامک بفرستید.</span>
             </div>
           </div>
         </div>

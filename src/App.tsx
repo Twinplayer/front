@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { ScreenMode, DashboardTab, RoomSettings, PhotoMemory, WishlistItem } from './types';
 import { defaultRoomSettings } from './data/mockData';
+import { getSyncEngine } from './utils/syncEngine';
 import { Navbar } from './components/Navbar';
 import { LandingScreen } from './components/LandingScreen';
 import { OtpScreen } from './components/OtpScreen';
@@ -18,10 +19,13 @@ import { AddMemoryModal } from './components/AddMemoryModal';
 import { SuggestMovieModal } from './components/SuggestMovieModal';
 
 export default function App() {
+  const syncEngine = getSyncEngine();
+
   // Read URL query params for easy test navigation or default start
   const queryParams = new URLSearchParams(window.location.search);
   const initialScreenParam = queryParams.get('screen') as ScreenMode | null;
   const initialTabParam = queryParams.get('tab') as DashboardTab | null;
+  const roomParam = queryParams.get('room');
   const autostart = queryParams.get('autostart') === '1';
 
   const [screen, setScreen] = useState<ScreenMode>(
@@ -30,12 +34,29 @@ export default function App() {
   const [tab, setTab] = useState<DashboardTab>(initialTabParam || 'memories');
   const [currentContact, setCurrentContact] = useState('09120005678');
   const [currentMovieTitle, setCurrentMovieTitle] = useState('لا لا لند (La La Land)');
+  const [currentVideoUrl, setCurrentVideoUrl] = useState<string | undefined>(undefined);
   const [roomSettings, setRoomSettings] = useState<RoomSettings>(defaultRoomSettings);
+  const [networkLatency, setNetworkLatency] = useState(12);
 
   // Modals
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [isAddMemoryOpen, setIsAddMemoryOpen] = useState(false);
   const [isSuggestMovieOpen, setIsSuggestMovieOpen] = useState(false);
+
+  useEffect(() => {
+    // If room query param exists, configure sync engine for that room
+    if (roomParam) {
+      syncEngine.connectSignaling('ws://localhost:8080/ws', roomParam, false);
+    }
+
+    const unsubscribe = syncEngine.onConnectionChange((connected, latency) => {
+      setNetworkLatency(latency);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [roomParam, syncEngine]);
 
   // Switch between screens
   const handleEnterRoom = () => {
@@ -50,7 +71,7 @@ export default function App() {
 
   const handleOtpVerified = () => {
     setScreen('dashboard');
-    setTab('memories');
+    setTab('theater');
   };
 
   const handleStartTonight = (title?: string) => {
@@ -89,7 +110,7 @@ export default function App() {
             currentTab={tab}
             onTabChange={(t) => setTab(t)}
             onSwitchScreen={(s) => setScreen(s)}
-            latencyMs={12}
+            latencyMs={networkLatency}
           />
 
           <main className="flex-1">
@@ -109,6 +130,7 @@ export default function App() {
             {tab === 'theater' && (
               <TheaterScreen
                 movieTitle={currentMovieTitle}
+                videoSourceUrl={currentVideoUrl}
                 settings={roomSettings}
                 onOpenSettings={() => setTab('settings')}
               />
@@ -116,8 +138,9 @@ export default function App() {
 
             {tab === 'upload' && (
               <UploadScreen
-                onLoadMovieToPlayer={(title) => {
+                onLoadMovieToPlayer={(title, videoUrl) => {
                   setCurrentMovieTitle(title);
+                  if (videoUrl) setCurrentVideoUrl(videoUrl);
                   setTab('theater');
                 }}
               />

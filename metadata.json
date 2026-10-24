@@ -2,7 +2,5 @@
   "name": "CinemaSync - سینمای دونفره آنلاین",
   "description": "پلتفرم پخش همگام فیلم و سریال ویژه زوج‌ها با اتصال امن سرتاسری P2P، دفتر خاطرات سینمایی و همگام‌سازی فریم‌به‌فریم",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

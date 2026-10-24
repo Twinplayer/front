@@ -5,7 +5,13 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { currentUser, partnerUser } from '../data/mockData';
-import { formatTime, toPersianDigits, calculateSyncDifference } from '../utils/syncEngine';
+import {
+  formatTime,
+  toPersianDigits,
+  calculateSyncDifference,
+  getSyncEngine,
+  SyncEventPayload
+} from '../utils/syncEngine';
 import { RoomSettings } from '../types';
 import {
   Play,
@@ -31,7 +37,8 @@ import {
   Settings,
   Flame,
   Laugh,
-  Check
+  Check,
+  Film
 } from 'lucide-react';
 
 interface FloatingReaction {
@@ -50,16 +57,20 @@ interface ChatMessage {
 
 interface TheaterScreenProps {
   movieTitle?: string;
+  videoSourceUrl?: string;
   settings?: RoomSettings;
   onOpenSettings?: () => void;
 }
 
 export const TheaterScreen: React.FC<TheaterScreenProps> = ({
   movieTitle = 'لا لا لند (La La Land)',
+  videoSourceUrl,
   settings,
   onOpenSettings,
 }) => {
+  const syncEngine = getSyncEngine();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const isRemoteActionRef = useRef<boolean>(false);
 
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -73,13 +84,18 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Partner Sync State
-  const [partnerTime, setPartnerTime] = useState(0.5); // Slightly offset for realistic sync
-  const [partnerLagMs, setPartnerLagMs] = useState(12);
-  const [isPartnerConnected, setIsPartnerConnected] = useState(true);
+  const [partnerTime, setPartnerTime] = useState(0);
+  const [partnerLagMs, setPartnerLagMs] = useState(syncEngine.latencyMs || 12);
+  const [isPartnerConnected, setIsPartnerConnected] = useState(syncEngine.isConnected);
   const [isSyncing, setIsSyncing] = useState(false);
   const [partnerMicActive, setPartnerMicActive] = useState(true);
-  const [userMicActive, setUserMicActive] = useState(true);
   const [partnerWebcamActive, setPartnerWebcamActive] = useState(true);
+
+  // Dynamic Video Source: Priority 1: passed prop, Priority 2: P2P downloaded file, Priority 3: HD fallback
+  const effectiveVideoSource =
+    videoSourceUrl ||
+    syncEngine.activeFileUrl ||
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
 
   // Floating Reactions
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
@@ -91,13 +107,13 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
     {
       id: 'm1',
       sender: 'parnia',
-      text: 'سلام عشقم! چیپس و پاپ‌کورنم حاضره، آماده‌ای؟ ❤️',
+      text: 'سلام آریان جانم! چیپس و پاپ‌کورنم حاضره، آماده‌ای؟ ❤️',
       time: '۲۳:۱۵',
     },
     {
       id: 'm2',
       sender: 'aryan',
-      text: 'آره قربونت برم، هندزفری رو وصل کردم و کیفیته روی 4K تنظیمه 🍿',
+      text: 'آره قربونت برم، هندزفری رو وصل کردم و کیفیته روی بدون افت P2P تنظیمه 🍿',
       time: '۲۳:۱۶',
     },
     {
@@ -109,21 +125,142 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Reliable open cinematic sample video
-  const videoSource =
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
+  // Launch Floating Reaction
+  const launchReaction = useCallback((emoji: string, broadcast: boolean = true) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    const x = Math.floor(Math.random() * 70) + 15; // 15% to 85% width
+    const newReaction: FloatingReaction = { id, emoji, x, y: 90 };
 
-  // Toggle Play / Pause with sync
+    setFloatingReactions((prev) => [...prev, newReaction]);
+
+    if (broadcast) {
+      syncEngine.sendReaction(emoji, 'aryan');
+    }
+
+    // Animate removal after 2.5 seconds
+    setTimeout(() => {
+      setFloatingReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 2400);
+  }, [syncEngine]);
+
+  // Listen to remote P2P WebRTC sync events
+  useEffect(() => {
+    const unsubscribeSync = syncEngine.onSyncEvent((payload: SyncEventPayload) => {
+      const vid = videoRef.current;
+      if (!vid) return;
+
+      switch (payload.type) {
+        case 'PLAY': {
+          if (typeof payload.time === 'number') {
+            const drift = Math.abs(vid.currentTime - payload.time);
+            // 500ms drift threshold to avoid jarring seek jumps
+            if (drift > 0.5) {
+              vid.currentTime = payload.time;
+              setCurrentTime(payload.time);
+            }
+          }
+          if (vid.paused) {
+            isRemoteActionRef.current = true;
+            vid
+              .play()
+              .catch(() => {})
+              .finally(() => {
+                isRemoteActionRef.current = false;
+              });
+            setIsPlaying(true);
+          }
+          break;
+        }
+
+        case 'PAUSE': {
+          if (typeof payload.time === 'number') {
+            const drift = Math.abs(vid.currentTime - payload.time);
+            if (drift > 0.5) {
+              vid.currentTime = payload.time;
+              setCurrentTime(payload.time);
+            }
+          }
+          if (!vid.paused) {
+            isRemoteActionRef.current = true;
+            vid.pause();
+            isRemoteActionRef.current = false;
+            setIsPlaying(false);
+          }
+          break;
+        }
+
+        case 'SEEK': {
+          if (typeof payload.time === 'number') {
+            vid.currentTime = payload.time;
+            setCurrentTime(payload.time);
+            setPartnerTime(payload.time);
+          }
+          break;
+        }
+
+        case 'CHAT': {
+          if (payload.text) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Math.random().toString(),
+                sender: 'parnia',
+                text: payload.text || '',
+                time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+              },
+            ]);
+          }
+          break;
+        }
+
+        case 'REACTION': {
+          if (payload.emoji) {
+            launchReaction(payload.emoji, false);
+          }
+          break;
+        }
+
+        case 'SYNC_PING':
+        case 'SYNC_PONG': {
+          if (typeof payload.time === 'number') {
+            setPartnerTime(payload.time);
+          }
+          setPartnerLagMs(syncEngine.latencyMs);
+          break;
+        }
+      }
+    });
+
+    const unsubscribeConn = syncEngine.onConnectionChange((connected, latency) => {
+      setIsPartnerConnected(connected);
+      setPartnerLagMs(latency);
+    });
+
+    return () => {
+      unsubscribeSync();
+      unsubscribeConn();
+    };
+  }, [syncEngine, launchReaction]);
+
+  // Toggle Play / Pause with sync broadcast
   const togglePlayPause = useCallback(() => {
     if (!videoRef.current) return;
+    const curTime = videoRef.current.currentTime;
+
     if (isPlaying) {
       videoRef.current.pause();
       setIsPlaying(false);
+      if (!isRemoteActionRef.current) {
+        syncEngine.sendPause(curTime);
+      }
     } else {
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
+      if (!isRemoteActionRef.current) {
+        syncEngine.sendPlay(curTime);
+      }
     }
-  }, [isPlaying]);
+  }, [isPlaying, syncEngine]);
 
   // Keyboard shortcut: Space for Play/Pause
   useEffect(() => {
@@ -143,13 +280,17 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
     const cur = videoRef.current.currentTime;
     setCurrentTime(cur);
 
-    // Keep partner near cur with tiny micro-jitter for live feel
-    const syncDiff = calculateSyncDifference(cur, partnerTime, settings?.syncToleranceMs || 30);
+    // Periodically send ping with local playhead
+    if (Math.floor(cur) % 2 === 0) {
+      syncEngine.sendSyncPing(cur);
+    }
+
+    // Keep partner near cur with tiny micro-jitter for live feel if remote partner is in session
+    const syncDiff = calculateSyncDifference(cur, partnerTime, settings?.syncToleranceMs || 30, 500);
     if (syncDiff.needsHardSeek) {
       setPartnerTime(cur);
-    } else {
-      // Simulate real-time partner playhead moving alongside
-      setPartnerTime(cur + 0.015);
+    } else if (partnerTime === 0) {
+      setPartnerTime(cur);
     }
 
     // Buffer check
@@ -164,36 +305,24 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
     }
   };
 
+  // Seek handler with broadcast and 500ms drift prevention
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     if (videoRef.current) {
       videoRef.current.currentTime = newTime;
       setCurrentTime(newTime);
-      setPartnerTime(newTime); // Dual seek syncs partner too
+      setPartnerTime(newTime);
+      syncEngine.sendSeek(newTime);
     }
   };
 
   const handleManualSyncWithPartner = () => {
     setIsSyncing(true);
-    if (videoRef.current) {
+    if (videoRef.current && partnerTime > 0) {
       videoRef.current.currentTime = partnerTime;
       setCurrentTime(partnerTime);
     }
-    setTimeout(() => setIsSyncing(false), 800);
-  };
-
-  // Launch Floating Reaction
-  const launchReaction = (emoji: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    const x = Math.floor(Math.random() * 70) + 15; // 15% to 85% width
-    const newReaction: FloatingReaction = { id, emoji, x, y: 90 };
-
-    setFloatingReactions((prev) => [...prev, newReaction]);
-
-    // Animate removal after 2.5 seconds
-    setTimeout(() => {
-      setFloatingReactions((prev) => prev.filter((r) => r.id !== id));
-    }, 2400);
+    setTimeout(() => setIsSyncing(false), 600);
   };
 
   // Send Chat message
@@ -209,28 +338,31 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
     };
 
     setMessages((prev) => [...prev, newMsg]);
+    syncEngine.sendChat(chatInput, 'aryan');
     setChatInput('');
 
-    // Trigger partner reaction or reply
-    setTimeout(() => {
-      launchReaction('❤️');
-      const partnerReplies = [
-        'دقیقاً! چقدر این صحنه خوبه 😍',
-        'وای منم عاشق این موزیکم ❤️',
-        'گریه‌م گرفت آریان...',
-        'تپش قلبم رفته روی صد! 🥺',
-      ];
-      const randomReply = partnerReplies[Math.floor(Math.random() * partnerReplies.length)];
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Math.random().toString(),
-          sender: 'parnia',
-          text: randomReply,
-          time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
-    }, 1800);
+    // If simulating partner offline response
+    if (!syncEngine.isConnected) {
+      setTimeout(() => {
+        launchReaction('❤️', false);
+        const partnerReplies = [
+          'دقیقاً! چقدر این صحنه خوبه 😍',
+          'وای منم عاشق این موزیکم ❤️',
+          'گریه‌م گرفت آریان...',
+          'تپش قلبم رفته روی صد! 🥺',
+        ];
+        const randomReply = partnerReplies[Math.floor(Math.random() * partnerReplies.length)];
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            sender: 'parnia',
+            text: randomReply,
+            time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      }, 1500);
+    }
   };
 
   // Auto scroll chat
@@ -256,11 +388,11 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
       onMouseMove={handleMouseMove}
       className="relative min-h-[calc(100vh-5rem)] bg-black text-[#e0e1f1] flex flex-col justify-between overflow-hidden select-none"
     >
-      {/* Real HTML5 Video element matching user prompt instructions */}
+      {/* Real HTML5 Video element */}
       <div className="relative w-full flex-1 flex items-center justify-center bg-black overflow-hidden">
         <video
           ref={videoRef}
-          src={videoSource}
+          src={effectiveVideoSource}
           playsInline
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
@@ -292,10 +424,13 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
           }`}
         >
           {/* Room & Movie Info */}
-          <div className="flex items-center gap-3 bg-[#10131e]/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-lg">
+          <div className="flex items-center gap-3 bg-[#10131e]/85 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-lg">
             <span className="w-2.5 h-2.5 rounded-full bg-[#ff3366] animate-pulse" />
             <div>
-              <h3 className="text-sm font-bold text-white">{movieTitle}</h3>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Film className="w-3.5 h-3.5 text-[#ff3366]" />
+                {movieTitle}
+              </h3>
               <p className="text-[10px] text-[#94a3b8]">سالن همیشگی: خلوت ما و پرنیا</p>
             </div>
           </div>
@@ -308,11 +443,11 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold backdrop-blur-md border transition-all ${
                 isSyncing
                   ? 'bg-emerald-500/30 text-emerald-300 border-emerald-400'
-                  : 'bg-[#181b26]/80 text-[#d0bcff] border-[#8b5cf6]/30 hover:border-[#ff3366]'
+                  : 'bg-[#181b26]/85 text-[#d0bcff] border-[#8b5cf6]/30 hover:border-[#ff3366]'
               }`}
             >
               <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              <span>همگام با پرنیا ({partnerLagMs}ms)</span>
+              <span>همگام با پرنیا ({toPersianDigits(partnerLagMs)}ms)</span>
               {isSyncing && <Check className="w-3.5 h-3.5 text-emerald-400" />}
             </button>
 
@@ -321,7 +456,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
               className={`p-2 rounded-xl backdrop-blur-md border transition-colors relative ${
                 isChatOpen
                   ? 'bg-[#ff3366] text-white border-[#ff3366]'
-                  : 'bg-[#181b26]/80 text-[#94a3b8] hover:text-white border-white/10'
+                  : 'bg-[#181b26]/85 text-[#94a3b8] hover:text-white border-white/10'
               }`}
             >
               <MessageCircle className="w-4 h-4" />
@@ -330,7 +465,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
           </div>
         </div>
 
-        {/* Partner WebCam PIP Overlay matching requirements */}
+        {/* Partner WebCam PIP Overlay */}
         <div className="absolute bottom-28 left-6 z-30 group">
           <div className="glass-panel-elevated p-2 rounded-2xl border border-white/15 w-44 sm:w-52 shadow-2xl relative overflow-hidden transition-all group-hover:scale-105">
             {/* Live Camera View Simulation */}
@@ -384,7 +519,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-white/5">
               <div className="flex items-center gap-2">
                 <MessageCircle className="w-4 h-4 text-[#ff3366]" />
-                <h4 className="text-xs font-bold text-white">گفتگوی خصوصی با پرنیا</h4>
+                <h4 className="text-xs font-bold text-white">گفتگوی خصوصی با پرنیا (DataChannel)</h4>
               </div>
               <button
                 onClick={() => setIsChatOpen(false)}
@@ -418,7 +553,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
               <div ref={chatEndRef} />
             </div>
 
-            {/* Quick emoji reaction bar above input matching Stitch design */}
+            {/* Quick emoji reaction bar above input */}
             <div className="flex items-center justify-between gap-1 py-2 px-1 border-t border-white/5">
               {['❤️', '🍿', '🥲', '🥺', '🔥', '👏'].map((em) => (
                 <button
@@ -499,12 +634,28 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
               <div className="w-1.5 h-1.5 bg-[#8b5cf6] rotate-45 -mt-0.5" />
             </div>
 
+            {/* Local User Floating Scrub Pin on Timeline */}
+            <div
+              style={{ left: `${Math.min(100, Math.max(0, currentPercentage))}%` }}
+              className="absolute -top-7 transform -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all duration-100 z-20 opacity-0 group-hover/scrub:opacity-100"
+            >
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#ff3366] text-white text-[9px] font-bold shadow-md shadow-[#ff3366]/40">
+                <span>{currentUser.name}</span>
+              </div>
+              <div className="w-1.5 h-1.5 bg-[#ff3366] rotate-45 -mt-0.5" />
+            </div>
+
             {/* Buffer & Progress Background Tracks */}
             <div className="relative w-full h-2 rounded-full bg-white/10 overflow-hidden cursor-pointer">
               {/* Buffer Bar */}
               <div
                 style={{ width: `${bufferPercentage}%` }}
                 className="absolute top-0 bottom-0 left-0 bg-white/20 transition-all duration-300"
+              />
+              {/* Partner Position Sub-track */}
+              <div
+                style={{ width: `${partnerPercentage}%` }}
+                className="absolute top-0 bottom-0 left-0 bg-[#8b5cf6]/40 pointer-events-none"
               />
               {/* Played Progress Bar */}
               <div
@@ -543,7 +694,12 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
 
               <button
                 onClick={() => {
-                  if (videoRef.current) videoRef.current.currentTime -= 10;
+                  if (videoRef.current) {
+                    const newTime = Math.max(0, videoRef.current.currentTime - 10);
+                    videoRef.current.currentTime = newTime;
+                    setCurrentTime(newTime);
+                    syncEngine.sendSeek(newTime);
+                  }
                 }}
                 title="۱۰ ثانیه عقب"
                 className="p-2 rounded-xl hover:bg-white/10 text-[#94a3b8] hover:text-white transition-colors"
@@ -553,7 +709,12 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
 
               <button
                 onClick={() => {
-                  if (videoRef.current) videoRef.current.currentTime += 10;
+                  if (videoRef.current) {
+                    const newTime = Math.min(duration, videoRef.current.currentTime + 10);
+                    videoRef.current.currentTime = newTime;
+                    setCurrentTime(newTime);
+                    syncEngine.sendSeek(newTime);
+                  }
                 }}
                 title="۱۰ ثانیه جلو"
                 className="p-2 rounded-xl hover:bg-white/10 text-[#94a3b8] hover:text-white transition-colors"
@@ -572,7 +733,7 @@ export const TheaterScreen: React.FC<TheaterScreenProps> = ({
             {/* Center: Dual Sync indicator */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#10131e]/70 border border-white/5 text-xs text-[#94a3b8]">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>پخش همگام دوطرفه فعال است</span>
+              <span>پخش همگام P2P با تلرانس ۵۰۰ms فعال است</span>
             </div>
 
             {/* Right Controls in RTL: Volume, Settings, Fullscreen */}
